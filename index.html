@@ -76,6 +76,16 @@ input,select,textarea{font-family:var(--sans)}
 .view-btn{background:none;border:none;color:var(--text3);width:27px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s}
 .view-btn.active{background:var(--bg2);color:var(--text)}
 #sort-select{background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:12px;padding:5px 8px;outline:none}
+/* FILTER BAR */
+#filter-bar{padding:7px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--bg2)}
+#filter-bar.hidden{display:none}
+.filter-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 10px;border-radius:20px;font-size:11px;font-weight:500;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:default}
+.filter-tag.include{background:rgba(122,200,122,0.1);border-color:rgba(122,200,122,0.3);color:#7ac87a}
+.filter-tag.exclude{background:rgba(220,100,100,0.1);border-color:rgba(220,100,100,0.3);color:#e07070}
+.filter-tag.date{background:rgba(200,184,154,0.1);border-color:rgba(200,184,154,0.3);color:var(--accent)}
+.filter-tag-del{background:none;border:none;cursor:pointer;color:inherit;opacity:.6;display:flex;align-items:center;padding:0;line-height:1;font-size:13px}
+.filter-tag-del:hover{opacity:1}
+#filter-btn-active{background:rgba(200,184,154,0.15);border-color:var(--accent2);color:var(--accent)}
 #source-tabs{display:flex;gap:4px;padding:0 14px 10px;border-bottom:1px solid var(--border)}
 .src-tab{padding:4px 10px;border-radius:20px;font-size:12px;border:1px solid var(--border);background:none;color:var(--text2);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px}
 .src-tab:hover{border-color:var(--border2);color:var(--text)}
@@ -349,6 +359,15 @@ textarea.form-input{resize:vertical;min-height:70px;line-height:1.5}
       <button class="icon-btn" id="btn-mark-all" title="Tout marquer comme lu">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
       </button>
+      <button class="icon-btn" id="btn-filter" title="Filtres d'affichage">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="filter-bar" class="hidden">
+      <span style="font-size:11px;color:var(--text3);white-space:nowrap">Filtres actifs :</span>
+      <div id="filter-tags" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></div>
+      <button class="pill-btn" id="btn-add-display-filter" style="white-space:nowrap;font-size:11px;padding:3px 9px">+ Ajouter un filtre</button>
+      <button class="pill-btn" id="btn-clear-display-filters" style="white-space:nowrap;font-size:11px;padding:3px 9px;color:var(--text3)">Tout effacer</button>
     </div>
     <div id="source-tabs">
       <button class="src-tab active" data-src="all"><span class="tab-dot" style="background:var(--text3)"></span>Tout</button>
@@ -418,6 +437,33 @@ textarea.form-input{resize:vertical;min-height:70px;line-height:1.5}
         <select class="form-input" id="feed-cat"></select>
       </div>
     </div>
+    <details style="margin-bottom:11px">
+      <summary style="font-size:12px;color:var(--text2);font-weight:500;cursor:pointer;padding:6px 0;user-select:none;list-style:none;display:flex;align-items:center;gap:6px">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+        Filtres d'ingestion <span style="font-size:10px;color:var(--text3);font-weight:400">(optionnel — appliqués à l'import)</span>
+      </summary>
+      <div style="padding-top:10px;display:flex;flex-direction:column;gap:10px">
+        <div class="form-group" style="margin:0">
+          <label>Mots-clés requis <span style="color:var(--text3);font-weight:400">(l'article doit contenir au moins un)</span></label>
+          <input class="form-input" id="feed-include" type="text" placeholder="ex: IA, machine learning, LLM  (séparés par des virgules)">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Mots-clés exclus <span style="color:var(--text3);font-weight:400">(l'article ne doit contenir aucun)</span></label>
+          <input class="form-input" id="feed-exclude" type="text" placeholder="ex: sponsored, publicité  (séparés par des virgules)">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Ancienneté maximale</label>
+          <select class="form-input" id="feed-maxage">
+            <option value="0">Pas de limite</option>
+            <option value="1">Aujourd'hui seulement</option>
+            <option value="3">3 derniers jours</option>
+            <option value="7">7 derniers jours</option>
+            <option value="30">30 derniers jours</option>
+            <option value="90">3 derniers mois</option>
+          </select>
+        </div>
+      </div>
+    </details>
     <div class="modal-actions">
       <button class="btn btn-ghost modal-close-btn" data-modal="modal-feed">Annuler</button>
       <button class="btn btn-accent" id="btn-feed-confirm">Ajouter</button>
@@ -494,7 +540,46 @@ textarea.form-input{resize:vertical;min-height:70px;line-height:1.5}
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-cat">
+<div class="modal-overlay" id="modal-display-filter">
+  <div class="modal" style="width:420px">
+    <h2>Ajouter un filtre d'affichage</h2>
+    <p class="modal-sub">S'applique en temps réel sur tous les articles visibles</p>
+    <div class="form-group">
+      <label>Type de filtre</label>
+      <select class="form-input" id="df-type">
+        <option value="include">Contient (titre ou résumé)</option>
+        <option value="exclude">Ne contient pas</option>
+        <option value="source">Source spécifique</option>
+        <option value="period">Période de publication</option>
+      </select>
+    </div>
+    <div id="df-value-wrap">
+      <div class="form-group" id="df-text-group">
+        <label id="df-text-label">Mot-clé ou expression</label>
+        <input class="form-input" id="df-text" type="text" placeholder="ex: ChatGPT">
+        <p class="form-hint">Insensible à la casse. Cherche dans le titre et le résumé.</p>
+      </div>
+      <div class="form-group" id="df-source-group" style="display:none">
+        <label>Source</label>
+        <select class="form-input" id="df-source"></select>
+      </div>
+      <div class="form-group" id="df-period-group" style="display:none">
+        <label>Afficher uniquement les articles publiés</label>
+        <select class="form-input" id="df-period">
+          <option value="1">Aujourd'hui</option>
+          <option value="3">Ces 3 derniers jours</option>
+          <option value="7">Cette semaine</option>
+          <option value="30">Ce mois-ci</option>
+          <option value="90">Ces 3 derniers mois</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost modal-close-btn" data-modal="modal-display-filter">Annuler</button>
+      <button class="btn btn-accent" id="btn-df-confirm">Appliquer</button>
+    </div>
+  </div>
+</div>
   <div class="modal">
     <h2>Nouvelle catégorie</h2>
     <p class="modal-sub">Organisez vos sources par thème</p>
@@ -603,6 +688,7 @@ let state = {
   cats:[], sources:[], articles:[], articleStates:{},
   activeCat:'all', filter:'all', srcFilter:'all',
   search:'', sort:'date', view:'list', activeArticleId:null,
+  displayFilters:[], // [{id, type:'include'|'exclude'|'source'|'period', value, label}]
 };
 
 // ════════════════════════════════════════════════════
@@ -683,6 +769,27 @@ async function withSync(fn){
 }
 
 // ════════════════════════════════════════════════════
+// INGESTION FILTERS
+// ════════════════════════════════════════════════════
+function parseKeywords(str){ return (str||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean); }
+
+function passesIngestionFilter(article, source){
+  const text = (article.title+' '+(article.summary||'')).toLowerCase();
+  // Max age
+  if(source.filter_maxage>0){
+    const ageDays=(Date.now()-new Date(article.published_at))/86400000;
+    if(ageDays>source.filter_maxage) return false;
+  }
+  // Include keywords — must match at least one
+  const inc = parseKeywords(source.filter_include);
+  if(inc.length && !inc.some(k=>text.includes(k))) return false;
+  // Exclude keywords — must match none
+  const exc = parseKeywords(source.filter_exclude);
+  if(exc.some(k=>text.includes(k))) return false;
+  return true;
+}
+
+// ════════════════════════════════════════════════════
 // RSS FETCHING
 // ════════════════════════════════════════════════════
 async function fetchFeed(source){
@@ -715,7 +822,12 @@ async function refreshFeeds(sourceIds){
   }));
   const newArts=results.flatMap(r=>r.status==='fulfilled'?r.value:[]);
   const existingIds=new Set(state.articles.map(a=>a.id));
-  const toInsert=newArts.filter(a=>!existingIds.has(a.id));
+  // Apply per-source ingestion filters before inserting
+  const toInsert=newArts.filter(a=>{
+    if(existingIds.has(a.id)) return false;
+    const src=state.sources.find(s=>s.id===a.source_id);
+    return src ? passesIngestionFilter(a, src) : true;
+  });
   if(toInsert.length){
     await withSync(()=>sb.upsert('articles',toInsert));
     toInsert.forEach(a=>state.articles.unshift(a));
@@ -971,6 +1083,21 @@ function getFilteredArticles(){
   if(state.filter==='unread') arts=arts.filter(a=>!getState(a.id).is_read);
   if(state.filter==='saved') arts=arts.filter(a=>getState(a.id).is_saved);
   if(state.search){const q=state.search.toLowerCase();arts=arts.filter(a=>a.title.toLowerCase().includes(q)||a.summary.toLowerCase().includes(q));}
+  // Display filters
+  state.displayFilters.forEach(f=>{
+    if(f.type==='include'){
+      const kw=f.value.toLowerCase();
+      arts=arts.filter(a=>(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));
+    } else if(f.type==='exclude'){
+      const kw=f.value.toLowerCase();
+      arts=arts.filter(a=>!(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));
+    } else if(f.type==='source'){
+      arts=arts.filter(a=>a.source_id===f.value);
+    } else if(f.type==='period'){
+      const cutoff=Date.now()-f.value*86400000;
+      arts=arts.filter(a=>new Date(a.published_at).getTime()>=cutoff);
+    }
+  });
   if(state.sort==='source') arts.sort((a,b)=>(a.source_id||'').localeCompare(b.source_id||''));
   else if(state.sort==='cat') arts.sort((a,b)=>(a.cat_id||'').localeCompare(b.cat_id||''));
   return arts;
@@ -1033,7 +1160,89 @@ function renderArticles(){
   });
 }
 
-function render(){renderSidebar();renderArticles();}
+function render(){renderSidebar();renderArticles();renderFilterBar();}
+
+// ════════════════════════════════════════════════════
+// FILTER BAR
+// ════════════════════════════════════════════════════
+function renderFilterBar(){
+  const bar=document.getElementById('filter-bar');
+  const tags=document.getElementById('filter-tags');
+  const btn=document.getElementById('btn-filter');
+  const hasFilters=state.displayFilters.length>0;
+  bar.classList.toggle('hidden',!hasFilters);
+  btn.classList.toggle('active',hasFilters);
+  btn.id='btn-filter'; // keep id
+  if(hasFilters) btn.style.cssText='background:rgba(200,184,154,0.15);color:var(--accent)';
+  else btn.style.cssText='';
+  tags.innerHTML=state.displayFilters.map(f=>`
+    <span class="filter-tag ${f.type==='include'?'include':f.type==='exclude'?'exclude':'date'}">
+      ${f.type==='include'?'✓':f.type==='exclude'?'✗':f.type==='source'?'@':'📅'} ${f.label}
+      <button class="filter-tag-del" data-del-filter="${f.id}" title="Supprimer ce filtre">×</button>
+    </span>`).join('');
+  tags.querySelectorAll('[data-del-filter]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      state.displayFilters=state.displayFilters.filter(f=>f.id!==btn.dataset.delFilter);
+      render();
+    });
+  });
+}
+
+document.getElementById('btn-filter').addEventListener('click',()=>{
+  if(state.displayFilters.length>0){
+    // Toggle bar visibility when filters exist
+    const bar=document.getElementById('filter-bar');
+    bar.classList.toggle('hidden');
+  } else {
+    openAddDisplayFilter();
+  }
+});
+
+document.getElementById('btn-add-display-filter').addEventListener('click',openAddDisplayFilter);
+document.getElementById('btn-clear-display-filters').addEventListener('click',()=>{
+  state.displayFilters=[]; render();
+});
+
+function openAddDisplayFilter(){
+  // Populate source select
+  const sel=document.getElementById('df-source');
+  sel.innerHTML=state.sources.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('df-text').value='';
+  document.getElementById('df-type').value='include';
+  // Trigger type change to show correct field
+  updateDfType();
+  openModal('modal-display-filter');
+}
+
+function updateDfType(){
+  const t=document.getElementById('df-type').value;
+  document.getElementById('df-text-group').style.display=(t==='include'||t==='exclude')?'block':'none';
+  document.getElementById('df-source-group').style.display=t==='source'?'block':'none';
+  document.getElementById('df-period-group').style.display=t==='period'?'block':'none';
+  document.getElementById('df-text-label').textContent=t==='include'?'Contient (titre ou résumé)':'Ne contient pas';
+}
+document.getElementById('df-type').addEventListener('change',updateDfType);
+
+document.getElementById('btn-df-confirm').addEventListener('click',()=>{
+  const type=document.getElementById('df-type').value;
+  let value, label;
+  if(type==='include'||type==='exclude'){
+    value=document.getElementById('df-text').value.trim();
+    if(!value){toast('⚠ Saisissez un mot-clé');return;}
+    label=`"${value}"`;
+  } else if(type==='source'){
+    const sel=document.getElementById('df-source');
+    value=sel.value;
+    label=sel.options[sel.selectedIndex].text;
+  } else if(type==='period'){
+    const sel=document.getElementById('df-period');
+    value=parseInt(sel.value);
+    label=sel.options[sel.selectedIndex].text;
+  }
+  state.displayFilters.push({id:'df_'+Date.now(), type, value, label});
+  closeModal('modal-display-filter');
+  render();
+});
 
 // ════════════════════════════════════════════════════
 // DETAIL PANEL
@@ -1208,13 +1417,20 @@ document.getElementById('btn-feed-confirm').addEventListener('click',async()=>{
   const url=document.getElementById('feed-url').value.trim();
   const name=document.getElementById('feed-name').value.trim();
   const catId=document.getElementById('feed-cat').value;
+  const filterInclude=document.getElementById('feed-include').value.trim();
+  const filterExclude=document.getElementById('feed-exclude').value.trim();
+  const filterMaxage=parseInt(document.getElementById('feed-maxage').value)||0;
   if(!url){toast('URL requise');return;}
   const domain=(function(){try{return new URL(url).hostname.replace('www.','');}catch{return url;}})();
   const id='feed_'+Date.now();
-  const src={id,name:name||domain,url,type:'rss',cat_id:catId};
+  const src={id,name:name||domain,url,type:'rss',cat_id:catId,filter_include:filterInclude,filter_exclude:filterExclude,filter_maxage:filterMaxage};
   await withSync(()=>sb.upsert('sources',src));
   state.sources.push(src); render(); closeModal('modal-feed');
-  document.getElementById('feed-url').value='';document.getElementById('feed-name').value='';
+  document.getElementById('feed-url').value='';
+  document.getElementById('feed-name').value='';
+  document.getElementById('feed-include').value='';
+  document.getElementById('feed-exclude').value='';
+  document.getElementById('feed-maxage').value='0';
   toast('Flux ajoute. Actualisation...');
   await refreshFeeds([id]); render();
 });
