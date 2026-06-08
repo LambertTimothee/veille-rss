@@ -76,7 +76,23 @@ input,select,textarea{font-family:var(--sans)}
 .view-btn{background:none;border:none;color:var(--text3);width:27px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s}
 .view-btn.active{background:var(--bg2);color:var(--text)}
 #sort-select{background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:12px;padding:5px 8px;outline:none}
-/* FILTER BAR */
+/* COLLAPSIBLE CATEGORIES + TAGS */
+.cat-group{margin-bottom:2px}
+.cat-group-header{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:0 5px;border-radius:8px;cursor:pointer;color:var(--text2);font-size:13px;transition:color .15s,background .15s;user-select:none;position:relative}
+.cat-group-header:hover{color:var(--text);background:var(--bg3)}
+.cat-group-header.active{color:var(--text);background:var(--bg3)}
+.cat-chevron{margin-left:auto;color:var(--text3);transition:transform .2s;flex-shrink:0;display:flex}
+.cat-group.open .cat-chevron{transform:rotate(90deg)}
+.cat-group-body{overflow:hidden;max-height:0;transition:max-height .2s ease}
+.cat-group.open .cat-group-body{max-height:400px}
+.cat-tag-section{padding:3px 10px 5px 28px}
+.cat-tag-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-weight:500}
+.tag-chips{display:flex;flex-wrap:wrap;gap:4px}
+.tag-chip{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;transition:all .15s;white-space:nowrap}
+.tag-chip:hover{border-color:var(--border2);color:var(--text2)}
+.tag-chip.active{color:var(--bg);font-weight:500}
+.feed-entry-indent{padding-left:24px}
+/* COLLAPSIBLE CATEGORIES + TAGS */
 #filter-bar{padding:7px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--bg2)}
 #filter-bar.hidden{display:none}
 .filter-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 10px;border-radius:20px;font-size:11px;font-weight:500;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:default}
@@ -437,6 +453,11 @@ textarea.form-input{resize:vertical;min-height:70px;line-height:1.5}
         <select class="form-input" id="feed-cat"></select>
       </div>
     </div>
+    <div class="form-group">
+      <label>Tags <span style="color:var(--text3);font-weight:400">(optionnel — séparés par des virgules)</span></label>
+      <input class="form-input" id="feed-tags" type="text" placeholder="ex: IA générative, open source, recherche">
+      <p class="form-hint">Les tags permettent de regrouper des sources en sous-groupes dans la sidebar</p>
+    </div>
     <details style="margin-bottom:11px">
       <summary style="font-size:12px;color:var(--text2);font-weight:500;cursor:pointer;padding:6px 0;user-select:none;list-style:none;display:flex;align-items:center;gap:6px">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
@@ -686,9 +707,10 @@ const PALETTE = ['#c8b89a','#7aa2c8','#7ac89a','#c87a7a','#b07ac8','#c8aa7a','#7
 
 let state = {
   cats:[], sources:[], articles:[], articleStates:{},
-  activeCat:'all', filter:'all', srcFilter:'all',
+  activeCat:'all', activeTag:null, filter:'all', srcFilter:'all',
   search:'', sort:'date', view:'list', activeArticleId:null,
-  displayFilters:[], // [{id, type:'include'|'exclude'|'source'|'period', value, label}]
+  displayFilters:[],
+  collapsedCats:new Set(), // ids des catégories repliées
 };
 
 // ════════════════════════════════════════════════════
@@ -828,12 +850,15 @@ async function refreshFeeds(sourceIds){
     const src=state.sources.find(s=>s.id===a.source_id);
     return src ? passesIngestionFilter(a, src) : true;
   });
-  if(toInsert.length){
-    await withSync(()=>sb.upsert('articles',toInsert));
-    toInsert.forEach(a=>state.articles.unshift(a));
+  // Deduplicate within batch — fixes "ON CONFLICT DO UPDATE cannot affect row a second time"
+  const seenInBatch=new Set();
+  const dedupedInsert=toInsert.filter(a=>{if(seenInBatch.has(a.id))return false;seenInBatch.add(a.id);return true;});
+  if(dedupedInsert.length){
+    await withSync(()=>sb.upsert('articles',dedupedInsert));
+    dedupedInsert.forEach(a=>state.articles.unshift(a));
     state.articles.sort((a,b)=>new Date(b.published_at)-new Date(a.published_at));
   }
-  return toInsert.length;
+  return dedupedInsert.length;
 }
 
 // ════════════════════════════════════════════════════
@@ -982,30 +1007,107 @@ function timeAgo(iso){
   return d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
 }
 
+function getSourceTags(sources){
+  const all=new Set();
+  sources.forEach(s=>(s.tags||[]).forEach(t=>all.add(t)));
+  return [...all].sort();
+}
+
 function renderSidebar(){
   const allUnread=state.articles.filter(a=>!getState(a.id).is_read).length;
-  let html=`<div class="nav-item${state.activeCat==='all'?' active':''}" data-cat="all">
+
+  // "Tout" nav item
+  let html=`<div class="nav-item${state.activeCat==='all'&&!state.activeTag?' active':''}" data-cat="all" style="margin-bottom:4px">
     <span class="nav-dot" style="background:#888"></span>Tout
     ${allUnread>0?`<span class="nav-badge">${allUnread}</span>`:''}
   </div>`;
+
+  // One collapsible group per category
   state.cats.forEach(c=>{
+    const isOpen=!state.collapsedCats.has(c.id);
+    const isActive=state.activeCat===c.id;
     const n=state.articles.filter(a=>a.cat_id===c.id&&!getState(a.id).is_read).length;
-    html+=`<div class="nav-item${state.activeCat===c.id?' active':''}" data-cat="${c.id}">
-      <span class="nav-dot" style="background:${c.color}"></span>
-      <span class="nav-cat-label" data-edit-cat="${c.id}">${c.name}</span>
-      ${n>0?`<span class="nav-badge">${n}</span>`:''}
-      <button class="nav-cat-del" data-del-cat="${c.id}" title="Supprimer">
-        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </button>
+    const catSources=state.sources.filter(s=>s.cat_id===c.id);
+    const tags=getSourceTags(catSources);
+
+    html+=`<div class="cat-group${isOpen?' open':''}" data-group="${c.id}">
+      <div class="cat-group-header${isActive&&!state.activeTag?' active':''}">
+        <span class="nav-dot" style="background:${c.color}"></span>
+        <span class="nav-cat-label" data-edit-cat="${c.id}">${c.name}</span>
+        ${n>0?`<span class="nav-badge">${n}</span>`:''}
+        <button class="nav-cat-del" data-del-cat="${c.id}" title="Supprimer">
+          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+        <span class="cat-chevron">
+          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+        </span>
+      </div>
+      <div class="cat-group-body">
+        ${tags.length?`<div class="cat-tag-section">
+          <div class="cat-tag-label">Tags</div>
+          <div class="tag-chips">${tags.map(t=>{
+            const isTagActive=state.activeCat===c.id&&state.activeTag===t;
+            return `<span class="tag-chip${isTagActive?' active':''}" data-tag="${t}" data-tag-cat="${c.id}" style="${isTagActive?`background:${c.color};border-color:${c.color}`:''}"> ${t}</span>`;
+          }).join('')}</div>
+        </div>`:''}
+        ${catSources.map(s=>{
+          const domain=(()=>{try{return new URL(s.url).hostname;}catch{return'';}})();
+          const hasFilters=s.filter_include||s.filter_exclude||s.filter_maxage>0;
+          return`<div class="feed-entry feed-entry-indent" data-id="${s.id}" data-type="${s.type}">
+            <div class="feed-favicon"><img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" onerror="this.style.display='none'"></div>
+            <span class="feed-name-text">${s.name}</span>
+            ${hasFilters?`<span title="Filtres actifs" style="font-size:9px;color:var(--accent);flex-shrink:0">⚙</span>`:''}
+            <span class="feed-type-dot" style="background:${s.type==='web'?'var(--web2)':c.color}"></span>
+          </div>`;
+        }).join('')}
+      </div>
     </div>`;
   });
+
   document.getElementById('sidebar-cats').innerHTML=html;
-  document.querySelectorAll('#sidebar-cats .nav-item').forEach(el=>{
-    el.addEventListener('click',e=>{
+
+  // "Tout" click
+  document.querySelector('[data-cat="all"]')?.addEventListener('click',()=>{
+    state.activeCat='all'; state.activeTag=null; render();
+  });
+
+  // Group header click — toggle collapse OR select cat
+  document.querySelectorAll('.cat-group-header').forEach(header=>{
+    header.addEventListener('click',e=>{
       if(e.target.closest('[data-edit-cat]')||e.target.closest('[data-del-cat]')) return;
-      state.activeCat=el.dataset.cat; render();
+      const group=header.closest('.cat-group');
+      const catId=group.dataset.group;
+      if(e.target.closest('.cat-chevron')){
+        // Toggle collapse only
+        state.collapsedCats.has(catId)?state.collapsedCats.delete(catId):state.collapsedCats.add(catId);
+        group.classList.toggle('open',!state.collapsedCats.has(catId));
+        // Update chevron without full re-render
+        header.querySelector('.cat-chevron svg').style.transform=state.collapsedCats.has(catId)?'':'rotate(90deg)';
+        return;
+      }
+      // Select category
+      state.activeCat=catId; state.activeTag=null;
+      if(state.collapsedCats.has(catId)){state.collapsedCats.delete(catId);}
+      render();
     });
   });
+
+  // Tag chip click
+  document.querySelectorAll('.tag-chip').forEach(chip=>{
+    chip.addEventListener('click',e=>{
+      e.stopPropagation();
+      const tag=chip.dataset.tag, catId=chip.dataset.tagCat;
+      if(state.activeCat===catId&&state.activeTag===tag){
+        // Deselect
+        state.activeTag=null; state.activeCat=catId;
+      } else {
+        state.activeCat=catId; state.activeTag=tag;
+      }
+      render();
+    });
+  });
+
+  // Inline rename
   document.querySelectorAll('[data-edit-cat]').forEach(label=>{
     label.addEventListener('click',e=>{
       e.stopPropagation();
@@ -1017,6 +1119,9 @@ function renderSidebar(){
       const commit=async()=>{
         const val=inp.value.trim();
         if(val&&val!==cat.name){
+          if(state.cats.some(c=>c.id!==catId&&c.name.toLowerCase()===val.toLowerCase())){
+            toast('⚠ Ce nom existe déjà'); inp.value=cat.name; render(); return;
+          }
           cat.name=val;
           await withSync(()=>sb.update('categories',{name:val},{id:catId}));
         }
@@ -1031,6 +1136,8 @@ function renderSidebar(){
       inp.addEventListener('click',e=>e.stopPropagation());
     });
   });
+
+  // Delete category
   document.querySelectorAll('[data-del-cat]').forEach(btn=>{
     btn.addEventListener('click',async e=>{
       e.stopPropagation();
@@ -1038,65 +1145,44 @@ function renderSidebar(){
       const used=state.sources.filter(s=>s.cat_id===catId).length;
       if(confirm(`Supprimer "${cat?.name}" ?${used>0?`\n⚠ ${used} source(s) utilisent cette catégorie.`:''}`)){
         state.cats=state.cats.filter(c=>c.id!==catId);
-        if(state.activeCat===catId)state.activeCat='all';
+        if(state.activeCat===catId){state.activeCat='all';state.activeTag=null;}
         await withSync(()=>sb.delete('categories',{id:catId}));
         render(); toast('Catégorie supprimée');
       }
     });
   });
 
-  const rssSrcs=state.sources.filter(s=>s.type==='rss');
-  document.getElementById('sidebar-feeds-rss').innerHTML=rssSrcs.map(s=>{
-    const domain=(()=>{try{return new URL(s.url).hostname;}catch{return'';}})();
-    const cat=getCat(s.cat_id);
-    return`<div class="feed-entry" data-id="${s.id}" data-type="rss">
-      <div class="feed-favicon"><img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" onerror="this.style.display='none'"></div>
-      <span class="feed-name-text">${s.name}</span>
-      <span class="feed-type-dot" style="background:${cat.color}"></span>
-    </div>`;
-  }).join('');
-
-  const webSrcs=state.sources.filter(s=>s.type==='web');
-  document.getElementById('sidebar-feeds-web').innerHTML=webSrcs.map(s=>{
-    const domain=(()=>{try{return new URL(s.url).hostname;}catch{return'';}})();
-    const cat=getCat(s.cat_id);
-    return`<div class="feed-entry" data-id="${s.id}" data-type="web">
-      <div class="feed-favicon"><img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" onerror="this.style.display='none'"></div>
-      <span class="feed-name-text">${s.name}</span>
-      <span class="feed-type-dot" style="background:${cat.color}"></span>
-    </div>`;
-  }).join('');
-
+  // Feed entry click — refresh
   document.querySelectorAll('.feed-entry').forEach(el=>{
     el.addEventListener('click',()=>{
       if(el.dataset.type==='rss') refreshFeeds([el.dataset.id]).then(()=>render());
       else refreshWebSource(el.dataset.id,true).then(()=>render());
     });
   });
+
+  // Hide old separate feed lists (now inside groups)
+  document.getElementById('sidebar-feeds-rss').innerHTML='';
+  document.getElementById('sidebar-feeds-web').innerHTML='';
 }
 
 function getFilteredArticles(){
   let arts=[...state.articles];
   if(state.activeCat!=='all') arts=arts.filter(a=>a.cat_id===state.activeCat);
+  // Filter by active tag — keep only articles whose source has this tag
+  if(state.activeTag){
+    const taggedSourceIds=new Set(state.sources.filter(s=>(s.tags||[]).includes(state.activeTag)).map(s=>s.id));
+    arts=arts.filter(a=>taggedSourceIds.has(a.source_id));
+  }
   if(state.srcFilter==='rss') arts=arts.filter(a=>a.type==='rss');
   if(state.srcFilter==='web') arts=arts.filter(a=>a.type==='web');
   if(state.filter==='unread') arts=arts.filter(a=>!getState(a.id).is_read);
   if(state.filter==='saved') arts=arts.filter(a=>getState(a.id).is_saved);
   if(state.search){const q=state.search.toLowerCase();arts=arts.filter(a=>a.title.toLowerCase().includes(q)||a.summary.toLowerCase().includes(q));}
-  // Display filters
   state.displayFilters.forEach(f=>{
-    if(f.type==='include'){
-      const kw=f.value.toLowerCase();
-      arts=arts.filter(a=>(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));
-    } else if(f.type==='exclude'){
-      const kw=f.value.toLowerCase();
-      arts=arts.filter(a=>!(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));
-    } else if(f.type==='source'){
-      arts=arts.filter(a=>a.source_id===f.value);
-    } else if(f.type==='period'){
-      const cutoff=Date.now()-f.value*86400000;
-      arts=arts.filter(a=>new Date(a.published_at).getTime()>=cutoff);
-    }
+    if(f.type==='include'){const kw=f.value.toLowerCase();arts=arts.filter(a=>(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));}
+    else if(f.type==='exclude'){const kw=f.value.toLowerCase();arts=arts.filter(a=>!(a.title+' '+(a.summary||'')).toLowerCase().includes(kw));}
+    else if(f.type==='source'){arts=arts.filter(a=>a.source_id===f.value);}
+    else if(f.type==='period'){const cutoff=Date.now()-f.value*86400000;arts=arts.filter(a=>new Date(a.published_at).getTime()>=cutoff);}
   });
   if(state.sort==='source') arts.sort((a,b)=>(a.source_id||'').localeCompare(b.source_id||''));
   else if(state.sort==='cat') arts.sort((a,b)=>(a.cat_id||'').localeCompare(b.cat_id||''));
@@ -1420,10 +1506,12 @@ document.getElementById('btn-feed-confirm').addEventListener('click',async()=>{
   const filterInclude=document.getElementById('feed-include').value.trim();
   const filterExclude=document.getElementById('feed-exclude').value.trim();
   const filterMaxage=parseInt(document.getElementById('feed-maxage').value)||0;
+  const tagsRaw=document.getElementById('feed-tags').value.trim();
+  const tags=tagsRaw?tagsRaw.split(',').map(t=>t.trim()).filter(Boolean):[];
   if(!url){toast('URL requise');return;}
   const domain=(function(){try{return new URL(url).hostname.replace('www.','');}catch{return url;}})();
   const id='feed_'+Date.now();
-  const src={id,name:name||domain,url,type:'rss',cat_id:catId,filter_include:filterInclude,filter_exclude:filterExclude,filter_maxage:filterMaxage};
+  const src={id,name:name||domain,url,type:'rss',cat_id:catId,filter_include:filterInclude,filter_exclude:filterExclude,filter_maxage:filterMaxage,tags};
   await withSync(()=>sb.upsert('sources',src));
   state.sources.push(src); render(); closeModal('modal-feed');
   document.getElementById('feed-url').value='';
@@ -1431,7 +1519,8 @@ document.getElementById('btn-feed-confirm').addEventListener('click',async()=>{
   document.getElementById('feed-include').value='';
   document.getElementById('feed-exclude').value='';
   document.getElementById('feed-maxage').value='0';
-  toast('Flux ajoute. Actualisation...');
+  document.getElementById('feed-tags').value='';
+  toast('Flux ajouté. Actualisation…');
   await refreshFeeds([id]); render();
 });
 
@@ -1448,12 +1537,16 @@ document.getElementById('btn-add-cat').addEventListener('click',()=>openModal('m
 document.getElementById('btn-cat-confirm').addEventListener('click',async()=>{
   const name=document.getElementById('cat-name').value.trim();
   if(!name){toast('Nom requis');return;}
+  // Duplicate check
+  if(state.cats.some(c=>c.name.toLowerCase()===name.toLowerCase())){
+    toast('⚠ Une catégorie "'+name+'" existe déjà');return;
+  }
   const id='cat_'+Date.now();
   const cat={id,name,color:selectedColor,position:state.cats.length};
   await withSync(()=>sb.upsert('categories',cat));
   state.cats.push(cat); render(); closeModal('modal-cat');
   document.getElementById('cat-name').value='';
-  toast('Categorie "'+name+'" creee');
+  toast('Catégorie "'+name+'" créée');
 });
 
 document.getElementById('btn-settings').addEventListener('click',()=>{
