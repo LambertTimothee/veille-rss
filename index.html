@@ -601,12 +601,20 @@ textarea.form-input{resize:vertical;min-height:70px;line-height:1.5}
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="modal-cat">
   <div class="modal">
     <h2>Nouvelle catégorie</h2>
     <p class="modal-sub">Organisez vos sources par thème</p>
     <div class="form-group">
       <label>Nom *</label>
       <input class="form-input" id="cat-name" type="text" placeholder="ex: Technologie, Finance…">
+    </div>
+    <div class="form-group">
+      <label>Catégorie parente <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
+      <select class="form-input" id="cat-parent">
+        <option value="">— Aucune (catégorie racine) —</option>
+      </select>
+      <p class="form-hint">Si définie, cette catégorie apparaîtra en sous-groupe à l'intérieur de la catégorie parente.</p>
     </div>
     <div class="form-group">
       <label>Couleur</label>
@@ -1013,56 +1021,62 @@ function getSourceTags(sources){
   return [...all].sort();
 }
 
+function renderCatGroup(c, depth=0){
+  const isOpen=!state.collapsedCats.has(c.id);
+  const isActive=state.activeCat===c.id;
+  const n=state.articles.filter(a=>a.cat_id===c.id&&!getState(a.id).is_read).length;
+  const catSources=state.sources.filter(s=>s.cat_id===c.id);
+  const tags=getSourceTags(catSources);
+  const subCats=state.cats.filter(sc=>sc.parent_id===c.id);
+  const indent=depth>0?'margin-left:14px;':'';
+  const dotSize=depth>0?'5px':'7px';
+
+  return`<div class="cat-group${isOpen?' open':''}" data-group="${c.id}" style="${indent}">
+    <div class="cat-group-header${isActive&&!state.activeTag?' active':''}">
+      <span class="nav-dot" style="background:${c.color};width:${dotSize};height:${dotSize}"></span>
+      <span class="nav-cat-label" data-edit-cat="${c.id}">${c.name}</span>
+      ${n>0?`<span class="nav-badge">${n}</span>`:''}
+      <button class="nav-cat-del" data-del-cat="${c.id}" title="Supprimer">
+        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      <span class="cat-chevron" style="${!subCats.length&&!catSources.length&&!tags.length?'visibility:hidden':''}">
+        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+      </span>
+    </div>
+    <div class="cat-group-body">
+      ${tags.length?`<div class="cat-tag-section">
+        <div class="cat-tag-label">Tags</div>
+        <div class="tag-chips">${tags.map(t=>{
+          const isTagActive=state.activeCat===c.id&&state.activeTag===t;
+          return`<span class="tag-chip${isTagActive?' active':''}" data-tag="${t}" data-tag-cat="${c.id}" style="${isTagActive?`background:${c.color};border-color:${c.color}`:''}"> ${t}</span>`;
+        }).join('')}</div>
+      </div>`:''}
+      ${catSources.map(s=>{
+        const domain=(()=>{try{return new URL(s.url).hostname;}catch{return'';}})();
+        const hasFilters=s.filter_include||s.filter_exclude||s.filter_maxage>0;
+        return`<div class="feed-entry feed-entry-indent" data-id="${s.id}" data-type="${s.type}">
+          <div class="feed-favicon"><img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" onerror="this.style.display='none'"></div>
+          <span class="feed-name-text">${s.name}</span>
+          ${hasFilters?`<span title="Filtres actifs" style="font-size:9px;color:var(--accent);flex-shrink:0">⚙</span>`:''}
+          <span class="feed-type-dot" style="background:${s.type==='web'?'var(--web2)':c.color}"></span>
+        </div>`;
+      }).join('')}
+      ${subCats.map(sc=>renderCatGroup(sc, depth+1)).join('')}
+    </div>
+  </div>`;
+}
+
 function renderSidebar(){
   const allUnread=state.articles.filter(a=>!getState(a.id).is_read).length;
 
-  // "Tout" nav item
   let html=`<div class="nav-item${state.activeCat==='all'&&!state.activeTag?' active':''}" data-cat="all" style="margin-bottom:4px">
     <span class="nav-dot" style="background:#888"></span>Tout
     ${allUnread>0?`<span class="nav-badge">${allUnread}</span>`:''}
   </div>`;
 
-  // One collapsible group per category
-  state.cats.forEach(c=>{
-    const isOpen=!state.collapsedCats.has(c.id);
-    const isActive=state.activeCat===c.id;
-    const n=state.articles.filter(a=>a.cat_id===c.id&&!getState(a.id).is_read).length;
-    const catSources=state.sources.filter(s=>s.cat_id===c.id);
-    const tags=getSourceTags(catSources);
-
-    html+=`<div class="cat-group${isOpen?' open':''}" data-group="${c.id}">
-      <div class="cat-group-header${isActive&&!state.activeTag?' active':''}">
-        <span class="nav-dot" style="background:${c.color}"></span>
-        <span class="nav-cat-label" data-edit-cat="${c.id}">${c.name}</span>
-        ${n>0?`<span class="nav-badge">${n}</span>`:''}
-        <button class="nav-cat-del" data-del-cat="${c.id}" title="Supprimer">
-          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
-        <span class="cat-chevron">
-          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-        </span>
-      </div>
-      <div class="cat-group-body">
-        ${tags.length?`<div class="cat-tag-section">
-          <div class="cat-tag-label">Tags</div>
-          <div class="tag-chips">${tags.map(t=>{
-            const isTagActive=state.activeCat===c.id&&state.activeTag===t;
-            return `<span class="tag-chip${isTagActive?' active':''}" data-tag="${t}" data-tag-cat="${c.id}" style="${isTagActive?`background:${c.color};border-color:${c.color}`:''}"> ${t}</span>`;
-          }).join('')}</div>
-        </div>`:''}
-        ${catSources.map(s=>{
-          const domain=(()=>{try{return new URL(s.url).hostname;}catch{return'';}})();
-          const hasFilters=s.filter_include||s.filter_exclude||s.filter_maxage>0;
-          return`<div class="feed-entry feed-entry-indent" data-id="${s.id}" data-type="${s.type}">
-            <div class="feed-favicon"><img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" onerror="this.style.display='none'"></div>
-            <span class="feed-name-text">${s.name}</span>
-            ${hasFilters?`<span title="Filtres actifs" style="font-size:9px;color:var(--accent);flex-shrink:0">⚙</span>`:''}
-            <span class="feed-type-dot" style="background:${s.type==='web'?'var(--web2)':c.color}"></span>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>`;
-  });
+  // Only render root categories at top level — subcats are rendered recursively inside their parent
+  const rootCats=state.cats.filter(c=>!c.parent_id);
+  rootCats.forEach(c=>{ html+=renderCatGroup(c,0); });
 
   document.getElementById('sidebar-cats').innerHTML=html;
 
@@ -1534,19 +1548,26 @@ colorGrid.querySelectorAll('.color-swatch').forEach(function(sw){
     colorGrid.querySelectorAll('.color-swatch').forEach(function(s){s.classList.toggle('selected',s.dataset.color===selectedColor);});
   });
 });
-document.getElementById('btn-add-cat').addEventListener('click',()=>openModal('modal-cat'));
+document.getElementById('btn-add-cat').addEventListener('click',()=>{
+  // Populate parent select — only root cats (no parent) can be parents to avoid deep nesting
+  const parentSel=document.getElementById('cat-parent');
+  parentSel.innerHTML='<option value="">— Aucune (catégorie racine) —</option>'
+    +state.cats.filter(c=>!c.parent_id).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  openModal('modal-cat');
+});
 document.getElementById('btn-cat-confirm').addEventListener('click',async()=>{
   const name=document.getElementById('cat-name').value.trim();
   if(!name){toast('Nom requis');return;}
-  // Duplicate check
   if(state.cats.some(c=>c.name.toLowerCase()===name.toLowerCase())){
     toast('⚠ Une catégorie "'+name+'" existe déjà');return;
   }
+  const parentId=document.getElementById('cat-parent').value||null;
   const id='cat_'+Date.now();
-  const cat={id,name,color:selectedColor,position:state.cats.length};
+  const cat={id,name,color:selectedColor,position:state.cats.length,parent_id:parentId};
   await withSync(()=>sb.upsert('categories',cat));
   state.cats.push(cat); render(); closeModal('modal-cat');
   document.getElementById('cat-name').value='';
+  document.getElementById('cat-parent').value='';
   toast('Catégorie "'+name+'" créée');
 });
 
